@@ -193,63 +193,69 @@ PLANTS = [
      "base_days":14, "heat_factor":0.60, "monsoon_bonus":5, "cool_factor":2.0,
      "pot":False, "pot_diameter_cm":None, "drought_tolerance":3,
      "fertilize_weeks":12, "pest_season":[6,7,8],
-     "watering_profile":{"flow_lpm":4,"duration_min":8,"heat_extra_min":4,"cool_less_min":3,
+     # 2.5 L/min @ 20-25s/L. Cycas necesita ~20L profundo → 8 min
+     "watering_profile":{"flow_lpm":2.5,"duration_min":8,"heat_extra_min":4,"cool_less_min":3,
                          "method":"Manguera lenta en espiral, tronco → afuera",
                          "target":"Zona raíces (~50 cm del tronco) — NO mojar frondas"}},
     {"id":"cycas_2",       "name":"Cycas #2 🌴",           "location":"tierra",
      "base_days":14, "heat_factor":0.60, "monsoon_bonus":5, "cool_factor":2.0,
      "pot":False, "pot_diameter_cm":None, "drought_tolerance":3,
      "fertilize_weeks":12, "pest_season":[6,7,8],
-     "watering_profile":{"flow_lpm":4,"duration_min":8,"heat_extra_min":4,"cool_less_min":3,
+     "watering_profile":{"flow_lpm":2.5,"duration_min":8,"heat_extra_min":4,"cool_less_min":3,
                          "method":"Manguera lenta en espiral, tronco → afuera",
                          "target":"Zona raíces (~50 cm del tronco) — NO mojar frondas"}},
     {"id":"rosal",         "name":"Rosal 🌹",               "location":"tierra",
      "base_days":4,  "heat_factor":0.50, "monsoon_bonus":2, "cool_factor":1.6,
      "pot":False, "pot_diameter_cm":None, "drought_tolerance":1,
      "fertilize_weeks":4, "pest_season":[3,4,5],
-     "watering_profile":{"flow_lpm":3,"duration_min":6,"heat_extra_min":3,"cool_less_min":2,
+     # Rosal ~15L → 6 min @ 2.5 L/min. Flujo suave para no erosionar base
+     "watering_profile":{"flow_lpm":2.5,"duration_min":6,"heat_extra_min":3,"cool_less_min":2,
                          "method":"Manguera muy suave al ras del suelo, circular",
                          "target":"Base del tallo — NUNCA hojas ni pétalos"}},
     {"id":"toronja",       "name":"Toronja 🍊",             "location":"tierra",
      "base_days":7,  "heat_factor":0.65, "monsoon_bonus":3, "cool_factor":1.7,
      "pot":False, "pot_diameter_cm":None, "drought_tolerance":2,
      "fertilize_weeks":6, "pest_season":[3,4,10,11],
-     "watering_profile":{"flow_lpm":5,"duration_min":12,"heat_extra_min":5,"cool_less_min":4,
+     # Cítrico adulto ~25L → 10 min @ 2.5 L/min
+     "watering_profile":{"flow_lpm":2.5,"duration_min":10,"heat_extra_min":4,"cool_less_min":3,
                          "method":"Manguera flujo medio, círculo amplio",
                          "target":"Drip line (~80 cm del tronco)"}},
     {"id":"limon",         "name":"Limón 🍋",               "location":"tierra",
      "base_days":7,  "heat_factor":0.65, "monsoon_bonus":3, "cool_factor":1.7,
      "pot":False, "pot_diameter_cm":None, "drought_tolerance":2,
      "fertilize_weeks":6, "pest_season":[3,4,10,11],
-     "watering_profile":{"flow_lpm":5,"duration_min":12,"heat_extra_min":5,"cool_less_min":4,
+     "watering_profile":{"flow_lpm":2.5,"duration_min":10,"heat_extra_min":4,"cool_less_min":3,
                          "method":"Manguera flujo medio, círculo amplio",
                          "target":"Drip line (~70 cm del tronco)"}},
     {"id":"mandarina",     "name":"Mandarina 🍊",           "location":"tierra",
      "base_days":7,  "heat_factor":0.65, "monsoon_bonus":3, "cool_factor":1.7,
      "pot":False, "pot_diameter_cm":None, "drought_tolerance":2,
      "fertilize_weeks":6, "pest_season":[3,4,10,11],
-     "watering_profile":{"flow_lpm":5,"duration_min":12,"heat_extra_min":5,"cool_less_min":4,
+     "watering_profile":{"flow_lpm":2.5,"duration_min":10,"heat_extra_min":4,"cool_less_min":3,
                          "method":"Manguera flujo medio, círculo amplio",
                          "target":"Drip line (~75 cm del tronco)"}},
     {"id":"lilly_asiatica","name":"Lilly Asiática 🌸",      "location":"maceta",
      "base_days":3,  "heat_factor":0.40, "monsoon_bonus":1, "cool_factor":1.5,
      "pot":True, "pot_diameter_cm":25, "drought_tolerance":1,
      "fertilize_weeks":3, "pest_season":[4,5,9,10],
-     "watering_profile":{"flow_lpm":1,"duration_min":2,"heat_extra_min":1,"cool_less_min":1,
-                         "method":"Regadera o goteo suave, uniforme sobre toda la maceta",
+     # Maceta 25cm ~2L → goteo suave ~0.8 L/min, 2.5 min
+     "watering_profile":{"flow_lpm":0.8,"duration_min":3,"heat_extra_min":1,"cool_less_min":1,
+                         "method":"Regadera o goteo muy suave, uniforme sobre toda la maceta",
                          "target":"Sustrato — hasta que escurra por los drenajes"}},
     {"id":"geranio",       "name":"Geranio 🌺",             "location":"maceta",
      "base_days":4,  "heat_factor":0.50, "monsoon_bonus":1, "cool_factor":1.5,
      "pot":True, "pot_diameter_cm":20, "drought_tolerance":2,
      "fertilize_weeks":4, "pest_season":[4,5],
-     "watering_profile":{"flow_lpm":1,"duration_min":2,"heat_extra_min":1,"cool_less_min":1,
+     # Maceta 20cm ~1.5L → goteo ~0.8 L/min, 2 min
+     "watering_profile":{"flow_lpm":0.8,"duration_min":2,"heat_extra_min":1,"cool_less_min":1,
                          "method":"Regadera suave directo al sustrato",
                          "target":"Base — NO flores ni hojas"}},
     {"id":"vinca",         "name":"Vinca de Madagascar 🌼", "location":"maceta",
      "base_days":3,  "heat_factor":0.45, "monsoon_bonus":1, "cool_factor":1.5,
      "pot":True, "pot_diameter_cm":45, "drought_tolerance":2,
      "fertilize_weeks":4, "pest_season":[4,5,9],
-     "watering_profile":{"flow_lpm":1,"duration_min":3,"heat_extra_min":2,"cool_less_min":1,
+     # Maceta grande 45cm ~4L → goteo suave ~0.8 L/min, 5 min
+     "watering_profile":{"flow_lpm":0.8,"duration_min":5,"heat_extra_min":2,"cool_less_min":1,
                          "method":"Regadera suave y uniforme sobre el sustrato",
                          "target":"Sustrato — hasta drenar. NO mojar flores"}},
 ]
@@ -556,11 +562,12 @@ def kb_main_menu() -> dict:
     return {"inline_keyboard": [
         [{"text": "🌿 Ver mis plantas",   "callback_data": "menu_plants"},
          {"text": "💧 Regar todo",        "callback_data": "water_all"}],
-        [{"text": "📊 Mi progreso",       "callback_data": "menu_progress"},
+        [{"text": "▶️ Iniciar riego",     "callback_data": "timer_prepare"},
          {"text": "🌤 Clima ahora",       "callback_data": "menu_weather"}],
-        [{"text": "🏆 Logros",            "callback_data": "menu_achievements"},
-         {"text": "📅 Mañana",            "callback_data": "menu_tomorrow"}],
-        [{"text": "✈️ Modo viaje",        "callback_data": "menu_travel"}],
+        [{"text": "📊 Mi progreso",       "callback_data": "menu_progress"},
+         {"text": "🏆 Logros",            "callback_data": "menu_achievements"}],
+        [{"text": "📅 Mañana",            "callback_data": "menu_tomorrow"},
+         {"text": "✈️ Modo viaje",        "callback_data": "menu_travel"}],
     ]}
 
 def kb_plant_list(state, temp_c, season, et, soil_r) -> dict:
@@ -617,6 +624,98 @@ def kb_travel() -> dict:
          {"text": "✈️ 14 días", "callback_data": "travel_14"}],
         [{"text": "🏠 Cancelar viaje",  "callback_data": "travel_off"},
          {"text": "⬅️ Menú",           "callback_data": "menu_main"}],
+    ]}
+
+# ─── TIMER SESSION (in-memory, per chat) ──────────────────────────────────────
+# Guarda el estado del timer guiado mientras el usuario está regando.
+# { chat_id: { "queue": [pid,...], "current": pid, "started_at": datetime,
+#              "mins": int, "completed": [pid,...] } }
+
+TIMER_SESSIONS: dict = {}
+
+def kb_timer_running(pid: str, step: int, total: int) -> dict:
+    """Botones mientras corre el timer de una planta."""
+    return {"inline_keyboard": [
+        [{"text": f"⏭ Siguiente planta ({step}/{total})",
+          "callback_data": f"timer_next_{pid}"}],
+        [{"text": "✅ Terminé todas",   "callback_data": "timer_done"},
+         {"text": "❌ Cancelar riego", "callback_data": "timer_cancel"}],
+    ]}
+
+def kb_timer_start(due_pids: list) -> dict:
+    """Botón para iniciar el timer guiado."""
+    return {"inline_keyboard": [
+        [{"text": f"▶️ Iniciar riego guiado ({len(due_pids)} plantas)",
+          "callback_data": "timer_start"}],
+        [{"text": "⬅️ Menú", "callback_data": "menu_main"}],
+    ]}
+
+def screen_timer_plant(pid: str, mins: float, step: int, total: int,
+                       started_at: datetime) -> str:
+    plant    = PLANT_MAP[pid]
+    wp       = plant["watering_profile"]
+    elapsed  = (datetime.now(TUCSON_TZ) - started_at).seconds // 60
+    secs_tot = int(mins * 60)
+    mm_s     = int(secs_tot % 60)
+    mm_m     = int(mins)
+
+    # Barra de progreso visual
+    progress_pct = min(1.0, elapsed / max(1, mins))
+    filled       = int(progress_pct * 12)
+    bar          = "█" * filled + "░" * (12 - filled)
+
+    voice = random.choice(VOICES.get(pid, {}).get("thirsty", ["Agua, por favor."]))
+
+    lines = [
+        f"⏱ <b>RIEGO EN CURSO</b>  [{step}/{total}]",
+        f"{'━'*22}",
+        f"",
+        f"🪴 <b>{plant['name']}</b>",
+        f"<i>\"{voice}\"</i>",
+        f"",
+        f"⏳ Tiempo: <b>{mm_m}:{mm_s:02d} min</b>",
+        f"💧 Flujo: <b>{wp['flow_lpm']} L/min</b>  →  ~<b>{round(wp['flow_lpm']*mins,1)} L</b>",
+        f"",
+        f"🔧 {wp['method']}",
+        f"🎯 {wp['target']}",
+        f"",
+        f"[{bar}] {int(progress_pct*100)}%",
+        f"",
+        f"<i>Toca ⏭ cuando termines esta planta</i>",
+    ]
+    return "\n".join(lines)
+
+def screen_timer_summary(completed: list, skipped_timer: list) -> str:
+    total_min = sum(PLANT_MAP[pid]["watering_profile"]["duration_min"]
+                    for pid in completed if pid in PLANT_MAP)
+    total_L   = sum(PLANT_MAP[pid]["watering_profile"]["flow_lpm"] *
+                    PLANT_MAP[pid]["watering_profile"]["duration_min"]
+                    for pid in completed if pid in PLANT_MAP)
+    names = "\n".join(f"  ✅ {PLANT_MAP[pid]['name']}" for pid in completed if pid in PLANT_MAP)
+    lines = [
+        f"🎉 <b>¡Riego completado!</b>",
+        f"{'━'*22}",
+        f"",
+        names,
+    ]
+    if skipped_timer:
+        skip_names = "\n".join(f"  ⏭ {PLANT_MAP[pid]['name']}"
+                               for pid in skipped_timer if pid in PLANT_MAP)
+        lines += ["", skip_names]
+    lines += [
+        f"",
+        f"{'━'*22}",
+        f"⏱ Tiempo total: ~<b>{total_min} min</b>",
+        f"💧 Agua usada: ~<b>{total_L:.0f} L</b>",
+        f"",
+        f"<i>Toca el botón para registrar el riego</i>",
+    ]
+    return "\n".join(lines)
+
+def kb_timer_done_confirm() -> dict:
+    return {"inline_keyboard": [
+        [{"text": "✅ Registrar todo como regado", "callback_data": "timer_confirm_all"}],
+        [{"text": "⬅️ Menú", "callback_data": "menu_main"}],
     ]}
 
 # ─── SCREEN BUILDERS ──────────────────────────────────────────────────────────
@@ -1251,6 +1350,187 @@ async def handle_callback(update: dict):
 
     elif data.startswith("noop_"):
         await answer_callback(cb_id, "Ya regada hoy ✅")
+
+    # ── Timer: preparar ────────────────────────────────────────────────────
+    elif data == "timer_prepare":
+        # Build queue: plantas que tocan hoy, en orden tierra→maceta
+        due_pids = []
+        for plant in PLANTS:
+            pid      = plant["id"]
+            last     = state.get(pid, {}).get("last_watered")
+            adaptive = get_adaptive(state, pid)
+            interval = calc_interval(plant, temp_c, season, et, soil_r, adaptive)
+            today    = date.today().isoformat()
+            if last == today:
+                continue  # ya regada
+            if last is None:
+                due_pids.append(pid)
+                continue
+            days_since = (date.today()-date.fromisoformat(last)).days
+            if days_since >= interval:
+                due_pids.append(pid)
+
+        if not due_pids:
+            await edit_msg(chat_id, msg_id,
+                           "✅ <b>No hay plantas que regar hoy.</b>\n\n"
+                           "Todas están al día. ¡Bien hecho!",
+                           kb_back_main())
+            return
+
+        # Guardar queue en sesión
+        TIMER_SESSIONS[chat_id] = {
+            "queue":      due_pids[1:],
+            "current":    due_pids[0],
+            "started_at": datetime.now(TUCSON_TZ),
+            "mins":       calc_duration(PLANT_MAP[due_pids[0]], temp_c, season, et),
+            "completed":  [],
+            "step":       1,
+            "total":      len(due_pids),
+        }
+
+        pid0  = due_pids[0]
+        plant0 = PLANT_MAP[pid0]
+        mins0  = calc_duration(plant0, temp_c, season, et)
+        total_min = sum(calc_duration(PLANT_MAP[p], temp_c, season, et) for p in due_pids)
+
+        lines = [
+            f"▶️ <b>Riego guiado — {len(due_pids)} plantas</b>",
+            f"{'━'*22}",
+            f"⏱ Tiempo total estimado: ~<b>{total_min} min</b>",
+            f"",
+        ]
+        for i, pid in enumerate(due_pids):
+            p    = PLANT_MAP[pid]
+            mins = calc_duration(p, temp_c, season, et)
+            loc  = "🪣" if p["pot"] else "🌍"
+            lines.append(f"  {i+1}. {p['name']} {loc} — {mins} min")
+
+        lines += ["", "<i>El bot te avisa cuándo pasar a la siguiente.</i>"]
+
+        await edit_msg(chat_id, msg_id, "\n".join(lines),
+                       kb_timer_start(due_pids))
+
+    # ── Timer: iniciar ─────────────────────────────────────────────────────
+    elif data == "timer_start":
+        session = TIMER_SESSIONS.get(chat_id)
+        if not session:
+            await answer_callback(cb_id, "Sesión expirada, vuelve al menú")
+            return
+        session["started_at"] = datetime.now(TUCSON_TZ)
+        pid   = session["current"]
+        mins  = session["mins"]
+        step  = session["step"]
+        total = session["total"]
+        txt   = screen_timer_plant(pid, mins, step, total, session["started_at"])
+        await edit_msg(chat_id, msg_id, txt, kb_timer_running(pid, step, total))
+
+        # Programar recordatorio automático cuando pase el tiempo
+        async def auto_remind(cid, pid_r, mins_r, step_r, total_r):
+            await asyncio.sleep(mins_r * 60)
+            sess = TIMER_SESSIONS.get(cid)
+            if sess and sess.get("current") == pid_r:
+                plant_r = PLANT_MAP[pid_r]
+                await send_msg(
+                    f"⏰ <b>¡Tiempo!</b> {plant_r['name']} — {mins_r} min completados\n\n"
+                    f"Toca <b>⏭ Siguiente planta</b> cuando estés listo.",
+                    reply_markup=kb_timer_running(pid_r, step_r, total_r),
+                    chat_id=cid,
+                )
+        asyncio.create_task(auto_remind(chat_id, pid, mins, step, total))
+
+    # ── Timer: siguiente planta ────────────────────────────────────────────
+    elif data.startswith("timer_next_"):
+        pid_done = data[len("timer_next_"):]
+        session  = TIMER_SESSIONS.get(chat_id)
+        if not session:
+            await answer_callback(cb_id, "Sesión expirada")
+            return
+
+        session["completed"].append(pid_done)
+        await answer_callback(cb_id, f"✅ {PLANT_MAP.get(pid_done,{}).get('name','')} lista")
+
+        if not session["queue"]:
+            # Terminamos
+            txt = screen_timer_summary(session["completed"], [])
+            await edit_msg(chat_id, msg_id, txt, kb_timer_done_confirm())
+        else:
+            next_pid = session["queue"].pop(0)
+            next_mins = calc_duration(PLANT_MAP[next_pid], temp_c, season, et)
+            session["current"]    = next_pid
+            session["mins"]       = next_mins
+            session["step"]      += 1
+            session["started_at"] = datetime.now(TUCSON_TZ)
+            step  = session["step"]
+            total = session["total"]
+            txt   = screen_timer_plant(next_pid, next_mins, step, total, session["started_at"])
+            await edit_msg(chat_id, msg_id, txt, kb_timer_running(next_pid, step, total))
+
+            # Auto-recordatorio para siguiente planta
+            async def auto_remind_next(cid, pid_r, mins_r, step_r, total_r):
+                await asyncio.sleep(mins_r * 60)
+                sess = TIMER_SESSIONS.get(cid)
+                if sess and sess.get("current") == pid_r:
+                    plant_r = PLANT_MAP[pid_r]
+                    await send_msg(
+                        f"⏰ <b>¡Tiempo!</b> {plant_r['name']} — {mins_r} min completados\n\n"
+                        f"Toca <b>⏭ Siguiente planta</b> cuando estés listo.",
+                        reply_markup=kb_timer_running(pid_r, step_r, total_r),
+                        chat_id=cid,
+                    )
+            asyncio.create_task(auto_remind_next(chat_id, next_pid, next_mins, step, total))
+
+    # ── Timer: terminé todas manualmente ──────────────────────────────────
+    elif data == "timer_done":
+        session = TIMER_SESSIONS.get(chat_id)
+        if not session:
+            await answer_callback(cb_id, "Sesión expirada")
+            return
+        # Marcar current como completada también
+        if session.get("current") and session["current"] not in session["completed"]:
+            session["completed"].append(session["current"])
+        txt = screen_timer_summary(session["completed"], session.get("queue", []))
+        await edit_msg(chat_id, msg_id, txt, kb_timer_done_confirm())
+
+    # ── Timer: registrar riegos ────────────────────────────────────────────
+    elif data == "timer_confirm_all":
+        session = TIMER_SESSIONS.get(chat_id, {})
+        pids    = session.get("completed", [])
+        if pids:
+            newly   = register_watering(state, pids, temp_c, season, et, soil_r, now)
+            new_ach = check_achievements(state, meta)
+            save_state(state)
+            TIMER_SESSIONS.pop(chat_id, None)
+
+            streak   = meta.get("streak", 0)
+            total_w  = meta.get("total_waterings", 0)
+            level, _ = get_level(total_w)
+
+            voices_txt = ""
+            for pid in pids[:3]:
+                p     = PLANT_MAP.get(pid)
+                if p:
+                    voice = random.choice(VOICES.get(pid,{}).get("happy",["¡Gracias!"]))
+                    voices_txt += f"\n{p['name']}: <i>\"{voice}\"</i>"
+
+            await edit_msg(chat_id, msg_id,
+                f"🎉 <b>¡Jardín regado!</b>\n"
+                f"{'━'*22}\n"
+                f"{len(pids)} planta(s) registradas."
+                + voices_txt +
+                f"\n\n{'━'*22}\n"
+                f"👤 {level}  ·  💧{total_w}  ·  🔥{streak}d",
+                kb_main_menu())
+            for ach in new_ach:
+                await send_msg(f"🏆 <b>¡LOGRO!</b> {ach['name']}\n{ach['desc']}")
+        else:
+            await edit_msg(chat_id, msg_id, "No hay riegos que registrar.", kb_main_menu())
+
+    # ── Timer: cancelar ────────────────────────────────────────────────────
+    elif data == "timer_cancel":
+        TIMER_SESSIONS.pop(chat_id, None)
+        await edit_msg(chat_id, msg_id,
+                       "❌ <b>Riego cancelado.</b>\n\nVuelve cuando quieras.",
+                       kb_main_menu())
 
 # ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
 
