@@ -141,7 +141,7 @@ VOICES = {
                     "Mis flores van a abrir mañana. ¿Las viste? Son bonitas, ¿verdad?",
                     "Regada a tiempo. ¡Soy feliz! ¡Buenas noches!"],
         "thirsty": ["Oye... el sustrato está un poquito seco... no quiero alarmar a nadie pero...",
-                    "¿Puedes meter el dedo en la tierra? ¿Seco verdad? Necesito agua.",
+                    "Revisa el sustrato — dos centímetros adentro. ¿Seco verdad? Necesito agua.",
                     "En maceta el sol de Tucson es MUCHO. Agua pronto.",
                     "Mis hojas están un poco menos erguidas. Es una señal de sed."],
         "dying":   ["🚨 ¡Estoy doblando las hojas! ¡AGUA AHORA POR FAVOR!",
@@ -175,7 +175,7 @@ VOICES = {
         "thirsty": ["Soy resistente al calor pero no soy roca. Agua pronto, campeón.",
                     "Mis flores siguen abiertas pero el sustrato ya se siente seco.",
                     "Tucson + maceta grande + sin agua = problema pronto. Tú lo sabes.",
-                    "¿Ya metiste el dedo al sustrato? Seco, ¿verdad? Riégame."],
+                    "Presiona el sustrato con el pulgar. Seco, ¿verdad? Eso pensé. Riégame."],
         "dying":   ["🚨 Mis flores están cerrando temprano. AGUA.",
                     "La maceta pesa menos que ayer. Tendencia preocupante.",
                     "🚨 Soy la más resistente del jardín y estoy pidiendo ayuda. ¿Qué más quieres saber?"],
@@ -589,20 +589,22 @@ def kb_plant_list(state, temp_c, season, et, soil_r) -> dict:
     rows.append([{"text": "⬅️ Menú principal", "callback_data": "menu_main"}])
     return {"inline_keyboard": rows}
 
-def kb_plant_actions(pid: str, watered_today: bool) -> dict:
+def kb_plant_actions(pid: str, watered_today: bool, is_pot: bool = False) -> dict:
     """Botones de acción para una planta específica."""
     water_btn = (
         {"text": "✅ Ya la regué", "callback_data": f"water_{pid}"}
         if not watered_today else
         {"text": "✅ Regada hoy", "callback_data": f"noop_{pid}"}
     )
-    return {"inline_keyboard": [
-        [water_btn],
-        [{"text": "⏭ Saltar hoy",     "callback_data": f"skip_{pid}"},
-         {"text": "💊 Fertilicé",     "callback_data": f"fert_{pid}"}],
-        [{"text": "⬅️ Mis plantas",   "callback_data": "menu_plants"},
-         {"text": "🏠 Menú",          "callback_data": "menu_main"}],
-    ]}
+    rows = [[water_btn]]
+    if is_pot and not watered_today:
+        rows.append([{"text": "🖐 Sustrato húmedo — saltar 2 días",
+                      "callback_data": f"moist_{pid}"}])
+    rows.append([{"text": "⏭ Saltar hoy",  "callback_data": f"skip_{pid}"},
+                 {"text": "💊 Fertilicé",  "callback_data": f"fert_{pid}"}])
+    rows.append([{"text": "⬅️ Mis plantas", "callback_data": "menu_plants"},
+                 {"text": "🏠 Menú",        "callback_data": "menu_main"}])
+    return {"inline_keyboard": rows}
 
 def kb_water_all_confirm() -> dict:
     return {"inline_keyboard": [
@@ -635,12 +637,17 @@ TIMER_SESSIONS: dict = {}
 
 def kb_timer_running(pid: str, step: int, total: int) -> dict:
     """Botones mientras corre el timer de una planta."""
-    return {"inline_keyboard": [
-        [{"text": f"⏭ Siguiente planta ({step}/{total})",
-          "callback_data": f"timer_next_{pid}"}],
-        [{"text": "✅ Terminé todas",   "callback_data": "timer_done"},
-         {"text": "❌ Cancelar riego", "callback_data": "timer_cancel"}],
-    ]}
+    plant   = PLANT_MAP.get(pid, {})
+    is_pot  = plant.get("pot", False)
+    rows    = []
+    if is_pot:
+        rows.append([{"text": "🖐 Sustrato húmedo — saltar",
+                      "callback_data": f"timer_moist_{pid}"}])
+    rows.append([{"text": f"⏭ Siguiente ({step}/{total})",
+                  "callback_data": f"timer_next_{pid}"}])
+    rows.append([{"text": "✅ Terminé todas",   "callback_data": "timer_done"},
+                 {"text": "❌ Cancelar",        "callback_data": "timer_cancel"}])
+    return {"inline_keyboard": rows}
 
 def kb_timer_start(due_pids: list) -> dict:
     """Botón para iniciar el timer guiado."""
@@ -691,16 +698,19 @@ def screen_timer_summary(completed: list, skipped_timer: list) -> str:
     total_L   = sum(PLANT_MAP[pid]["watering_profile"]["flow_lpm"] *
                     PLANT_MAP[pid]["watering_profile"]["duration_min"]
                     for pid in completed if pid in PLANT_MAP)
-    names = "\n".join(f"  ✅ {PLANT_MAP[pid]['name']}" for pid in completed if pid in PLANT_MAP)
+    names = "\n".join(f"  ✅ {PLANT_MAP[pid]['name']}"
+                      for pid in completed if pid in PLANT_MAP)
     lines = [
         f"🎉 <b>¡Riego completado!</b>",
         f"{'━'*22}",
         f"",
-        names,
+        names or "  (ninguna regada)",
     ]
     if skipped_timer:
-        skip_names = "\n".join(f"  ⏭ {PLANT_MAP[pid]['name']}"
-                               for pid in skipped_timer if pid in PLANT_MAP)
+        skip_names = "\n".join(
+            f"  🖐 {PLANT_MAP[pid]['name']} — sustrato húmedo, revisión en 2d"
+            for pid in skipped_timer if pid in PLANT_MAP
+        )
         lines += ["", skip_names]
     lines += [
         f"",
@@ -1195,7 +1205,7 @@ async def handle_callback(update: dict):
             st  = plant_status(plant, state, temp_c, season, et, soil_r)
             txt = screen_plant_detail(plant, state, temp_c, season, et, soil_r)
             await edit_msg(chat_id, msg_id, txt,
-                           kb_plant_actions(pid, st["watered_today"]))
+                           kb_plant_actions(pid, st["watered_today"], plant["pot"]))
 
     # ── Regar planta individual ────────────────────────────────────────────
     elif data.startswith("water_") and not data.startswith("water_all"):
@@ -1209,9 +1219,8 @@ async def handle_callback(update: dict):
             if newly:
                 voice = random.choice(VOICES.get(pid,{}).get("happy",["¡Gracias!"]))
                 await answer_callback(cb_id, f"✅ {plant['name']} regada!", alert=False)
-                st  = plant_status(plant, state, temp_c, season, et, soil_r)
                 txt = screen_plant_detail(plant, state, temp_c, season, et, soil_r)
-                await edit_msg(chat_id, msg_id, txt, kb_plant_actions(pid, True))
+                await edit_msg(chat_id, msg_id, txt, kb_plant_actions(pid, True, plant["pot"]))
                 for ach in new_ach:
                     await send_msg(f"🏆 <b>¡LOGRO!</b> {ach['name']}\n{ach['desc']}")
             else:
@@ -1251,6 +1260,23 @@ async def handle_callback(update: dict):
         await edit_msg(chat_id, msg_id, msg, kb_back_main())
         for ach in new_ach:
             await send_msg(f"🏆 <b>¡LOGRO!</b> {ach['name']}\n{ach['desc']}")
+
+    # ── Sustrato húmedo (macetas) ──────────────────────────────────────────
+    elif data.startswith("moist_"):
+        pid   = data[6:]
+        plant = PLANT_MAP.get(pid)
+        if plant and plant["pot"]:
+            # Extender el intervalo 2 días desde hoy
+            skip_until = (date.today() + timedelta(days=2)).isoformat()
+            state.setdefault(pid, {})["skip_until"] = skip_until
+            save_state(state)
+            await answer_callback(cb_id, "🖐 Ok, revisamos en 2 días")
+            await edit_msg(chat_id, msg_id,
+                f"🖐 <b>{plant['name']}</b> — sustrato húmedo\n\n"
+                f"El sustrato no miente. Revisamos en <b>2 días</b>.\n\n"
+                f"<i>Tip: presiona el sustrato ~2 cm. Si sientes frescura o humedad, espera.\n"
+                f"Si está seco y la maceta pesa poco, es hora de regar.</i>",
+                kb_back_main())
 
     # ── Skip planta ────────────────────────────────────────────────────────
     elif data.startswith("skip_"):
@@ -1437,6 +1463,54 @@ async def handle_callback(update: dict):
                     chat_id=cid,
                 )
         asyncio.create_task(auto_remind(chat_id, pid, mins, step, total))
+
+    # ── Timer: sustrato húmedo — saltar maceta en riego guiado ───────────
+    elif data.startswith("timer_moist_"):
+        pid_moist = data[len("timer_moist_"):]
+        session   = TIMER_SESSIONS.get(chat_id)
+        if not session:
+            await answer_callback(cb_id, "Sesión expirada")
+            return
+
+        plant_m = PLANT_MAP.get(pid_moist)
+        # Registrar skip de 2 días para esa maceta
+        skip_until = (date.today() + timedelta(days=2)).isoformat()
+        state.setdefault(pid_moist, {})["skip_until"] = skip_until
+        save_state(state)
+
+        await answer_callback(cb_id, "🖐 Sustrato húmedo — saltando")
+
+        # Agregar a skipped_moist del session
+        session.setdefault("skipped_moist", []).append(pid_moist)
+
+        # Avanzar igual que timer_next pero sin marcar como completada
+        if not session["queue"]:
+            txt = screen_timer_summary(session["completed"], session.get("skipped_moist", []))
+            await edit_msg(chat_id, msg_id, txt, kb_timer_done_confirm())
+        else:
+            next_pid  = session["queue"].pop(0)
+            next_mins = calc_duration(PLANT_MAP[next_pid], temp_c, season, et)
+            session["current"]    = next_pid
+            session["mins"]       = next_mins
+            session["step"]      += 1
+            session["started_at"] = datetime.now(TUCSON_TZ)
+            step  = session["step"]
+            total = session["total"]
+            txt   = screen_timer_plant(next_pid, next_mins, step, total, session["started_at"])
+            await edit_msg(chat_id, msg_id, txt, kb_timer_running(next_pid, step, total))
+
+            async def auto_remind_moist(cid, pid_r, mins_r, step_r, total_r):
+                await asyncio.sleep(mins_r * 60)
+                sess = TIMER_SESSIONS.get(cid)
+                if sess and sess.get("current") == pid_r:
+                    plant_r = PLANT_MAP[pid_r]
+                    await send_msg(
+                        f"⏰ <b>¡Tiempo!</b> {plant_r['name']} — {mins_r} min completados\n\n"
+                        f"Toca <b>⏭ Siguiente</b> cuando estés listo.",
+                        reply_markup=kb_timer_running(pid_r, step_r, total_r),
+                        chat_id=cid,
+                    )
+            asyncio.create_task(auto_remind_moist(chat_id, next_pid, next_mins, step, total))
 
     # ── Timer: siguiente planta ────────────────────────────────────────────
     elif data.startswith("timer_next_"):
