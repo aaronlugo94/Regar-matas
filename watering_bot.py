@@ -420,7 +420,10 @@ def calc_interval(plant,temp_c,season,et=1.0,soil_rain=0.0,adaptive=1.0)->int:
     if not plant["pot"] and soil_rain>0: iv+=min(base//2,int(soil_rain/5))
     if plant["pot"]:
         iv+=pot_adj_i(plant.get("pot_diameter_cm"))
-        if season!="cool": iv=max(1,iv-1)
+        # Only reduce interval in extreme Tucson heat, not always
+        # This prevents macetas showing every 1-2 days in spring/normal temps
+        if temp_c is not None and temp_c>=40:
+            iv=max(1,iv-1)
     return max(1,round(iv*adaptive))
 
 def calc_duration(plant,temp_c,season,et=1.0)->int:
@@ -633,10 +636,10 @@ def screen_today(state,temp_c,season,et,soil_r,wx)->tuple:
                 f"\n<i>\"{voice}\"</i>"
             )
             rows.append([
-                {"text":f"✅ {plant['name']}","callback_data":f"w_{plant['id']}_today"},
-                {"text":"🖐 Húmedo","callback_data":f"moist_{plant['id']}_today"}
+                {"text":f"✅ {plant['name']}","callback_data":f"w:{plant['id']}:today"},
+                {"text":"🖐 Húmedo","callback_data":f"moist:{plant['id']}:today"}
                 if plant["pot"] else
-                {"text":"ℹ️ Cómo","callback_data":f"detail_{plant['id']}_today"},
+                {"text":"ℹ️ Cómo","callback_data":f"detail:{plant['id']}:today"},
             ])
 
         if len(due)>1:
@@ -664,12 +667,12 @@ def screen_garden(state,temp_c,season,et,soil_r)->tuple:
         loc="🪣" if plant["pot"] else "🌍"
         lines.append(f"{st['label']} {loc} <b>{plant['name']}</b>  "
                      f"<i>cada {st['interval']}d · {st['mins']}min</i>")
-        action_cb=(f"w_{plant['id']}_garden" if not st["watered_today"] and st["overdue"]>=0
-                   else f"detail_{plant['id']}_garden")
+        action_cb=(f"w:{plant['id']}:garden" if not st["watered_today"] and st["overdue"]>=0
+                   else f"detail:{plant['id']}:garden")
         action_lbl=("✅ Regar" if not st["watered_today"] and st["overdue"]>=0 else "ℹ️")
         rows.append([
             {"text":action_lbl,"callback_data":action_cb},
-            {"text":plant["name"],"callback_data":f"detail_{plant['id']}_garden"},
+            {"text":plant["name"],"callback_data":f"detail:{plant['id']}:garden"},
         ])
     kb=navbar_with(rows,"garden")
     return "\n".join(lines),kb
@@ -725,13 +728,13 @@ def screen_detail(plant,state,temp_c,season,et,soil_r,back)->tuple:
 
     rows=[]
     if not st["watered_today"]:
-        rows.append([{"text":f"✅ Ya la regué","callback_data":f"w_{pid}_{back}"}])
+        rows.append([{"text":f"✅ Ya la regué","callback_data":f"w:{pid}:{back}"}])
         if plant["pot"]:
             rows.append([{"text":"🖐 Sustrato húmedo — esperar 2 días",
-                          "callback_data":f"moist_{pid}_{back}"}])
-    rows.append([{"text":"⏭ Saltar hoy","callback_data":f"skip_{pid}_{back}"},
-                 {"text":"💊 Fertilicé","callback_data":f"fert_{pid}_{back}"}])
-    rows.append([{"text":f"⬅️ Regresar","callback_data":f"nav_{back}"}])
+                          "callback_data":f"moist:{pid}:{back}"}])
+    rows.append([{"text":"⏭ Saltar hoy","callback_data":f"skip:{pid}:{back}"},
+                 {"text":"💊 Fertilicé","callback_data":f"fert:{pid}:{back}"}])
+    rows.append([{"text":f"⬅️ Regresar","callback_data":f"nav:{back}"}])
     kb=navbar_with(rows,"today" if back=="today" else "garden")
     return "\n".join(l for l in lines if l is not None),kb
 
@@ -808,8 +811,8 @@ def screen_timer_plant(pid,mins,step,total,started_at)->tuple:
     ]
     rows=[]
     if plant["pot"]:
-        rows.append([{"text":"🖐 Sustrato húmedo — saltar","callback_data":f"tmoist_{pid}"}])
-    rows.append([{"text":f"⏭ Siguiente  ({step}/{total})","callback_data":f"tnext_{pid}"}])
+        rows.append([{"text":"🖐 Sustrato húmedo — saltar","callback_data":f"tmoist:{pid}"}])
+    rows.append([{"text":f"⏭ Siguiente  ({step}/{total})","callback_data":f"tnext:{pid}"}])
     rows.append([{"text":"✅ Terminé todo","callback_data":"tdone"},
                  {"text":"❌ Cancelar","callback_data":"tcancel"}])
     return "\n".join(lines),{"inline_keyboard":rows}
@@ -903,7 +906,7 @@ async def handle_cb(update:dict):
     cb=update["callback_query"]
     data=cb["data"]; cbid=cb["id"]
     chat=str(cb["message"]["chat"]["id"]); mid=cb["message"]["message_id"]
-    await answer(cbid)
+    # NOTE: answer(cbid) called per-handler with meaningful text, not blanket here
 
     wx=await get_weather(); state=load_state(); meta=get_meta(state)
     season=get_season(); temp_c=wx.get("temp_c")
@@ -918,104 +921,128 @@ async def handle_cb(update:dict):
         txt,kb=screen_garden(state,temp_c,season,et,soil_r)
         await edit(chat,mid,txt,kb)
 
+    async def ack(text:str="✓",alert:bool=False):
+        """Answer callback with toast."""
+        await answer(cbid,text,alert)
+
     # ── Navbar ────────────────────────────────────────────────────────────
-    if data=="nav_today":
+    if data=="nav_today" or data=="nav:today":
+        await ack("🌿 Hoy")
         await refresh_today()
 
-    elif data=="nav_garden":
+    elif data=="nav_garden" or data=="nav:garden":
+        await ack("🌱 Jardín")
         txt,kb=screen_garden(state,temp_c,season,et,soil_r)
         await edit(chat,mid,txt,kb)
 
-    elif data=="nav_timer":
+    elif data=="nav_timer" or data=="nav:timer":
+        await ack("▶️ Riego guiado")
         result=screen_timer_prepare(state,temp_c,season,et,soil_r)
         txt,kb_or_tuple=result
+        # BUG3 FIX: do NOT create session here — only on timer_start
         if isinstance(kb_or_tuple,tuple):
-            kb,due_pids=kb_or_tuple
-            TIMER_SESSIONS[chat]={"queue":due_pids[1:],"current":due_pids[0],
-                "started_at":now,"mins":calc_duration(PLANT_MAP[due_pids[0]],temp_c,season,et),
-                "completed":[],"skipped_moist":[],"step":1,"total":len(due_pids)}
+            kb,_=kb_or_tuple
             await edit(chat,mid,txt,kb)
         else:
             await edit(chat,mid,txt,kb_or_tuple)
 
-    elif data=="nav_stats":
+    elif data=="nav_stats" or data=="nav:stats":
+        await ack("📊 Stats")
         txt,kb=screen_stats(state)
         await edit(chat,mid,txt,kb)
 
     # ── Regar planta individual ────────────────────────────────────────────
-    elif data.startswith("w_"):
-        parts=data.split("_"); pid=parts[1]; back=parts[2] if len(parts)>2 else "today"
+    elif data.startswith("w:"):
+        rest=data[2:].split(":",1); pid=rest[0]; back=rest[1] if len(rest)>1 else "today"
         newly=register_watering(state,[pid],temp_c,season,et,soil_r,now)
         new_ach=check_achievements(state,meta); save_state(state)
+        plant_name=PLANT_MAP.get(pid,{}).get("name",pid)
         if newly:
-            voice=random.choice(VOICES.get(pid,{}).get("happy",["¡Gracias!"]))
-            await answer(cbid,f"✅ {PLANT_MAP[pid]['name']} regada")
+            await ack(f"✅ {plant_name} regada 💧",alert=False)
             for a in new_ach: await send(f"🏆 <b>¡LOGRO!</b> {a['name']}\n{a['desc']}")
-        # Actualizar la pantalla donde estabas — sin regresar al menú
+        else:
+            await ack(f"Ya estaba regada hoy ✅")
         if back=="garden": await refresh_garden()
         else: await refresh_today()
 
-    # ── Regar todo ────────────────────────────────────────────────────────
+    # ── Regar todo (solo las que tocan) ───────────────────────────────────
     elif data=="water_all_today":
-        all_pids=[p["id"] for p in PLANTS]
-        newly=register_watering(state,all_pids,temp_c,season,et,soil_r,now)
+        # BUG2 FIX: only mark plants that are actually due, not all 10
+        today_str=date.today().isoformat()
+        due_pids=[]
+        for plant in PLANTS:
+            pid=plant["id"]; st=plant_status(plant,state,temp_c,season,et,soil_r)
+            skip_u=state.get(pid,{}).get("skip_until","")
+            if not st["watered_today"] and st["overdue"]>=0 and skip_u<today_str:
+                due_pids.append(pid)
+        newly=register_watering(state,due_pids,temp_c,season,et,soil_r,now)
         new_ach=check_achievements(state,meta); save_state(state)
-        await answer(cbid,f"✅ {len(newly)} plantas regadas 🎉",alert=True)
+        await ack(f"✅ {len(newly)} plantas regadas 🎉",alert=True)
         for a in new_ach: await send(f"🏆 <b>¡LOGRO!</b> {a['name']}\n{a['desc']}")
         await refresh_today()
 
     # ── Detalle de planta ──────────────────────────────────────────────────
-    elif data.startswith("detail_"):
-        parts=data.split("_",2); pid=parts[1]; back=parts[2]
+    elif data.startswith("detail:"):
+        rest=data[7:].split(":",1); pid=rest[0]; back=rest[1] if len(rest)>1 else "today"
         plant=PLANT_MAP.get(pid)
         if plant:
+            await ack()
             txt,kb=screen_detail(plant,state,temp_c,season,et,soil_r,back)
             await edit(chat,mid,txt,kb)
+        else:
+            await ack("❓ Planta no encontrada")
 
     # ── Sustrato húmedo ───────────────────────────────────────────────────
-    elif data.startswith("moist_"):
-        parts=data.split("_",2); pid=parts[1]; back=parts[2]
+    elif data.startswith("moist:"):
+        rest=data[6:].split(":",1); pid=rest[0]; back=rest[1] if len(rest)>1 else "today"
         plant=PLANT_MAP.get(pid)
         if plant and plant["pot"]:
             until=(date.today()+timedelta(days=2)).isoformat()
             state.setdefault(pid,{})["skip_until"]=until; save_state(state)
-            await answer(cbid,"🖐 Ok, revisamos en 2 días")
+            await ack("🖐 Ok, revisamos en 2 días",alert=True)
             if back=="garden": await refresh_garden()
             else: await refresh_today()
+        else:
+            await ack()
 
     # ── Skip ──────────────────────────────────────────────────────────────
-    elif data.startswith("skip_"):
-        parts=data.split("_",2); pid=parts[1]; back=parts[2]
+    elif data.startswith("skip:"):
+        rest=data[5:].split(":",1); pid=rest[0]; back=rest[1] if len(rest)>1 else "today"
         until=(date.today()+timedelta(days=1)).isoformat()
         state.setdefault(pid,{})["skip_until"]=until; save_state(state)
-        await answer(cbid,f"⏭ {PLANT_MAP[pid]['name']} saltada hasta mañana")
+        plant_name=PLANT_MAP.get(pid,{}).get("name",pid)
+        await ack(f"⏭ {plant_name} saltada hasta mañana",alert=True)
         if back=="garden": await refresh_garden()
         else: await refresh_today()
 
     # ── Fertilizar ────────────────────────────────────────────────────────
-    elif data.startswith("fert_"):
-        parts=data.split("_",2); pid=parts[1]; back=parts[2]
+    elif data.startswith("fert:"):
+        rest=data[5:].split(":",1); pid=rest[0]; back=rest[1] if len(rest)>1 else "today"
         plant=PLANT_MAP.get(pid)
         if plant:
             meta.setdefault("fertilize_log",{})[pid]=date.today().isoformat()
             meta["fertilizations_this_month"]=meta.get("fertilizations_this_month",0)+1
             new_ach=check_achievements(state,meta); save_state(state)
-            await answer(cbid,f"🌿 {plant['name']} fertilizada")
+            await ack(f"🌿 {plant['name']} fertilizada",alert=True)
             for a in new_ach: await send(f"🏆 <b>¡LOGRO!</b> {a['name']}\n{a['desc']}")
             if back=="garden": await refresh_garden()
             else: await refresh_today()
+        else:
+            await ack()
 
     # ── Timer: iniciar ────────────────────────────────────────────────────
     elif data=="timer_start":
         result=screen_timer_prepare(state,temp_c,season,et,soil_r)
         _,kb_or_tuple=result
         if not isinstance(kb_or_tuple,tuple):
-            await answer(cbid,"No hay plantas que regar"); return
+            await ack("No hay plantas que regar"); return
         _,due_pids=kb_or_tuple
+        # BUG3 FIX: create session HERE (on Iniciar), not on nav_timer
         sess={"queue":due_pids[1:],"current":due_pids[0],"started_at":now,
               "mins":calc_duration(PLANT_MAP[due_pids[0]],temp_c,season,et),
               "completed":[],"skipped_moist":[],"step":1,"total":len(due_pids)}
         TIMER_SESSIONS[chat]=sess
+        await ack(f"▶️ Iniciando — {len(due_pids)} plantas")
         txt,kb=screen_timer_plant(due_pids[0],sess["mins"],1,sess["total"],now)
         await edit(chat,mid,txt,kb)
         async def remind(cid,pid,mins,step,total):
@@ -1029,10 +1056,11 @@ async def handle_cb(update:dict):
         asyncio.create_task(remind(chat,due_pids[0],sess["mins"],1,sess["total"]))
 
     # ── Timer: siguiente ──────────────────────────────────────────────────
-    elif data.startswith("tnext_"):
+    elif data.startswith("tnext:"):
         pid_done=data[6:]; sess=TIMER_SESSIONS.get(chat)
-        if not sess: await answer(cbid,"Sesión expirada"); return
+        if not sess: await ack("Sesión expirada — regresa al inicio"); return
         sess["completed"].append(pid_done)
+        await ack(f"✅ {PLANT_MAP.get(pid_done,{}).get('name',pid_done)} lista")
         if not sess["queue"]:
             txt,kb=screen_timer_summary(sess["completed"],sess["skipped_moist"])
             await edit(chat,mid,txt,kb)
@@ -1050,13 +1078,13 @@ async def handle_cb(update:dict):
             asyncio.create_task(remind2(chat,nxt,nmins,sess["step"],sess["total"]))
 
     # ── Timer: sustrato húmedo ────────────────────────────────────────────
-    elif data.startswith("tmoist_"):
+    elif data.startswith("tmoist:"):
         pid_m=data[7:]; sess=TIMER_SESSIONS.get(chat)
-        if not sess: await answer(cbid,"Sesión expirada"); return
+        if not sess: await ack("Sesión expirada"); return
         until=(date.today()+timedelta(days=2)).isoformat()
         state.setdefault(pid_m,{})["skip_until"]=until; save_state(state)
         sess.setdefault("skipped_moist",[]).append(pid_m)
-        await answer(cbid,"🖐 Sustrato húmedo — saltando")
+        await ack("🖐 Sustrato húmedo — saltando")
         if not sess["queue"]:
             txt,kb=screen_timer_summary(sess["completed"],sess["skipped_moist"])
             await edit(chat,mid,txt,kb)
@@ -1072,11 +1100,15 @@ async def handle_cb(update:dict):
         if sess:
             if sess.get("current") and sess["current"] not in sess["completed"]:
                 sess["completed"].append(sess["current"])
+            await ack("✅ Resumen de riego")
             txt,kb=screen_timer_summary(sess["completed"],sess.get("skipped_moist",[]))
             await edit(chat,mid,txt,kb)
+        else:
+            await ack()
 
     elif data=="tcancel":
         TIMER_SESSIONS.pop(chat,None)
+        await ack("❌ Riego cancelado")
         txt,kb=screen_today(state,temp_c,season,et,soil_r,wx)
         await edit(chat,mid,txt,kb)
 
@@ -1088,9 +1120,14 @@ async def handle_cb(update:dict):
             newly=register_watering(state,pids,temp_c,season,et,soil_r,now)
             new_ach=check_achievements(state,meta); save_state(state)
             for a in new_ach: await send(f"🏆 <b>¡LOGRO!</b> {a['name']}\n{a['desc']}")
-            await answer(cbid,f"✅ {len(newly)} plantas registradas",alert=True)
+            await ack(f"✅ {len(newly)} plantas registradas 🎉",alert=True)
+        else:
+            await ack("Sin riegos que registrar")
         txt,kb=screen_today(state,temp_c,season,et,soil_r,wx)
         await edit(chat,mid,txt,kb)
+
+    else:
+        await ack()  # unknown callback — dismiss spinner
 
 # ─── MESSAGE HANDLER ──────────────────────────────────────────────────────────
 
@@ -1098,8 +1135,8 @@ async def handle_msg(update:dict):
     msg=update.get("message",{}); text=msg.get("text","").strip()
     chat=str(msg.get("chat",{}).get("id",""))
     if not any(text.startswith(c) for c in ["/start","/menu","/hoy"]): return
-    wx=await get_weather(); state=load_state(); meta=get_meta(state)
-    get_meta(state); save_state(state)
+    wx=await get_weather(); state=load_state()
+    get_meta(state); save_state(state)  # ensure meta exists
     txt,kb=screen_today(state,wx.get("temp_c"),get_season(),
                         et_factor(wx.get("temp_c"),wx.get("humidity"),wx.get("wind_ms",0)),
                         recent_rain(state),wx)
