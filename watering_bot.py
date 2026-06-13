@@ -523,8 +523,8 @@ def screen_plants(state) -> tuple:
         loc = "🪣" if plant["pot"] else "🌍"
         lines.append(f"{loc} <b>{plant['name']}</b> — {status}")
         rows.append([
-            {"text": f"💊 Fertilizar", "callback_data": f"fert:{plant['id']}:plants"},
-            {"text": "ℹ️ Cuidados", "callback_data": f"info:{plant['id']}:plants"},
+            {"text": f"💊 {plant['name']}", "callback_data": f"fert:{plant['id']}:plants"},
+            {"text": "ℹ️ Info", "callback_data": f"info:{plant['id']}:plants"},
         ])
     return "\n".join(lines), navbar_with(rows, "plants")
 
@@ -809,11 +809,13 @@ async def tuya_monitor():
             # Riego completo
             meta["zone1_last_run_date"] = today
             runs = meta.setdefault("zone1_runs", [])
+            mins_label = f"{elapsed_min:.0f}" if elapsed_min is not None else "?"
             runs.append({"date": today, "time": now.strftime("%H:%M"),
                           "minutes": round(elapsed_min,1) if elapsed_min is not None else None})
             if len(runs) > 30:
                 meta["zone1_runs"] = runs[-30:]
             meta["no_run_alerted"] = False
+            await send(f"✅ <b>Zona 1 (tierra) regó {mins_label} min</b> — todo bien.")
             logging.info(f"Zona 1: ciclo de riego completo ({elapsed_min}min) — registrado.")
 
         meta["zone1_started_at"] = None
