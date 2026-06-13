@@ -434,37 +434,21 @@ def screen_today(state, wx) -> tuple:
     has_items = False
 
     # ── Fertilización pendiente ────────────────────────────────────────────
-    fert_due_plants = []
-    for plant in PLANTS:
-        due, d = fert_due(plant, meta)
-        if due:
-            fert_due_plants.append((plant, d))
+    fert_due_plants = [p for p in PLANTS if fert_due(p, meta)[0]]
     if fert_due_plants:
         has_items = True
-        lines.append("\n🌿 <b>Fertilización pendiente:</b>")
-        for plant, d in fert_due_plants:
-            label = "nunca registrada" if d is None else f"hace {d}d"
-            lines.append(f"  • {plant['name']} — {label}")
-            rows.append([{"text": f"💊 Fertilicé {plant['name']}",
-                          "callback_data": f"fert:{plant['id']}:today"}])
+        names = ", ".join(p["name"] for p in fert_due_plants[:4])
+        more = f" +{len(fert_due_plants)-4} más" if len(fert_due_plants) > 4 else ""
+        lines.append(f"\n🌿 <b>Fertilización pendiente ({len(fert_due_plants)}):</b> {names}{more}")
+        rows.append([{"text": f"🌿 Fertilizar ({len(fert_due_plants)})", "callback_data": "nav_plants"}])
 
     # ── Riego de macetas ──────────────────────────────────────────────────
-    pot_due_plants = []
-    for plant in POT_PLANTS:
-        due, d = pot_water_due(plant, meta, today)
-        if due:
-            pot_due_plants.append((plant, d))
+    pot_due_plants = [p for p in POT_PLANTS if pot_water_due(p, meta, today)[0]]
     if pot_due_plants:
         has_items = True
-        lines.append("\n🪴 <b>Macetas — revisa sustrato:</b>")
-        for plant, d in pot_due_plants:
-            label = "nunca registrada" if d is None else f"hace {d}d"
-            voice = random.choice(VOICES.get(plant["id"],{}).get("thirsty",["Necesito agua."]))
-            lines.append(f"  • {plant['name']} ({label})\n    <i>\"{voice}\"</i>")
-            rows.append([
-                {"text": f"✅ Regué {plant['name']}", "callback_data": f"potw:{plant['id']}:today"},
-                {"text": "🖐 Húmedo", "callback_data": f"potmoist:{plant['id']}"},
-            ])
+        names = ", ".join(p["name"] for p in pot_due_plants)
+        lines.append(f"\n🪴 <b>Macetas por revisar ({len(pot_due_plants)}):</b> {names}")
+        rows.append([{"text": f"🪴 Revisar macetas ({len(pot_due_plants)})", "callback_data": "nav_pots"}])
 
     # ── Filtro ───────────────────────────────────────────────────────────
     f_due, f_d = filter_due(meta)
@@ -486,30 +470,29 @@ def screen_today(state, wx) -> tuple:
     # ── Plagas de temporada ─────────────────────────────────────────────
     pest_plants = [p for p in PLANTS if date.today().month in p.get("pest_season",[])]
     if pest_plants:
-        lines.append("\n🐛 <b>Revisión de plagas (temporada):</b>")
-        for plant in pest_plants:
-            lines.append(f"  • {plant['name']} — {plant['pest_tip']}")
+        names = ", ".join(p["name"] for p in pest_plants)
+        lines.append(f"\n🐛 <b>Revisión de plagas (temporada):</b> {names}")
 
     # ── Riego físico — resumen rápido ────────────────────────────────────
     if tuya_control.TUYA_ENABLED:
         status = tuya_control.get_status()
         if status.get("ok"):
             bat = status.get("battery")
-            z1 = "🟢 corriendo" if status["switch_1"] else "⚪ cerrada"
-            z2 = "🟢 corriendo" if status["switch_2"] else "⚪ cerrada"
+            z1 = "🟢" if status["switch_1"] else "⚪"
+            z2 = "🟢" if status["switch_2"] else "⚪"
             bat_warn = " ⚠️" if (bat is not None and bat < 20) else ""
-            lines.append(f"\n🚰 <b>Insoma:</b> Zona1 {z1} · Zona2 {z2} · 🔋{bat}%{bat_warn}")
-
             last_run = meta.get("zone1_last_run_date")
             d = days_since(last_run)
             if last_run == today:
-                lines.append("   ✅ Zona 1 regó hoy")
+                z1_status = "regó hoy ✅"
             elif d is not None and d >= 2:
-                lines.append(f"   ⚠️ Zona 1 sin riego detectado hace {d}d")
+                z1_status = f"⚠️ sin riego hace {d}d"
             elif d is not None:
-                lines.append(f"   <i>Zona 1 último riego: hace {d}d</i>")
+                z1_status = f"hace {d}d"
             else:
-                lines.append("   <i>Zona 1: aún sin historial de riego</i>")
+                z1_status = "sin historial"
+            lines.append(f"\n🚰 <b>Insoma</b> {z1} Z1 ({z1_status}) · {z2} Z2 · 🔋{bat}%{bat_warn}")
+        rows.append([{"text": "🚰 Riego Físico", "callback_data": "nav_tuya"}])
 
     # ── Modo viaje ────────────────────────────────────────────────────────
     travel_until = meta.get("travel_until")
@@ -718,24 +701,19 @@ async def evening_check():
     rows = []
 
     # Fertilización
-    for plant in PLANTS:
-        due, d = fert_due(plant, meta)
-        if due:
-            label = "nunca registrada" if d is None else f"hace {d}d"
-            notify_lines.append(f"🌿 {plant['name']} — fertilización pendiente ({label})")
-            rows.append([{"text": f"💊 Fertilicé {plant['name']}", "callback_data": f"fert:{plant['id']}:today"}])
+    fert_due_plants = [p for p in PLANTS if fert_due(p, meta)[0]]
+    if fert_due_plants:
+        names = ", ".join(p["name"] for p in fert_due_plants[:4])
+        more = f" +{len(fert_due_plants)-4} más" if len(fert_due_plants) > 4 else ""
+        notify_lines.append(f"🌿 Fertilización pendiente ({len(fert_due_plants)}): {names}{more}")
+        rows.append([{"text": f"🌿 Fertilizar ({len(fert_due_plants)})", "callback_data": "nav_plants"}])
 
     # Macetas
-    for plant in POT_PLANTS:
-        due, d = pot_water_due(plant, meta, today)
-        if due:
-            label = "nunca registrada" if d is None else f"hace {d}d"
-            voice = random.choice(VOICES.get(plant["id"],{}).get("thirsty",["Necesito agua."]))
-            notify_lines.append(f"🪴 {plant['name']} — revisa sustrato ({label})\n   <i>\"{voice}\"</i>")
-            rows.append([
-                {"text": f"✅ Regué {plant['name']}", "callback_data": f"potw:{plant['id']}:today"},
-                {"text": "🖐 Húmedo", "callback_data": f"potmoist:{plant['id']}"},
-            ])
+    pot_due_plants = [p for p in POT_PLANTS if pot_water_due(p, meta, today)[0]]
+    if pot_due_plants:
+        names = ", ".join(p["name"] for p in pot_due_plants)
+        notify_lines.append(f"🪴 Macetas por revisar ({len(pot_due_plants)}): {names}")
+        rows.append([{"text": f"🪴 Revisar macetas ({len(pot_due_plants)})", "callback_data": "nav_pots"}])
 
     # Filtro
     f_due, f_d = filter_due(meta)
@@ -776,7 +754,7 @@ async def evening_check():
     season = get_season()
     wx_line = (f"{wx['icon']} {wx['temp_c']:.0f}°C" if wx.get("ok") else "")
     header = f"🌙 <b>Resumen del jardín</b> {wx_line}  ·  {SEASON_LABEL[season]}\n{'━'*22}\n"
-    msg = header + "\n\n".join(notify_lines)
+    msg = header + "\n".join(notify_lines)
     rows.append([{"text": "🌿 Ver Hoy", "callback_data": "nav_today"}])
     await send(msg, {"inline_keyboard": rows})
     logging.info(f"8PM: {len(notify_lines)} items.")
