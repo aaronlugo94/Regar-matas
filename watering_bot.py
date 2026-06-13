@@ -35,6 +35,14 @@ TUCSON_TZ  = ZoneInfo("America/Phoenix")
 TUCSON_LAT = 32.2226
 TUCSON_LON = -110.9747
 
+AZMET_STATION = "az01"  # Tucson - Campus Agricultural Center
+
+# Normales de ETo Penman-Monteith para Tucson (mm/día), aproximado por mes.
+# Sirve como referencia: si el ETo real de ayer es mayor al normal del mes,
+# significa que se evaporó/transpiró más agua de la usual -> riego proporcional.
+ETO_NORMAL_MM = {1:2.0, 2:2.8, 3:4.3, 4:5.8, 5:7.0, 6:7.6,
+                 7:6.6, 8:6.0, 9:5.3, 10:3.8, 11:2.5, 12:1.8}
+
 # ─── PLANTS ───────────────────────────────────────────────────────────────────
 # fertilize_weeks: 26 = cada 6 meses, 13 = cada 3 meses
 # pot: True = maceta (riego manual), False = tierra (riego automático Insoma)
@@ -264,8 +272,10 @@ def get_meta(state: dict) -> dict:
         "zone1_was_on": False,     # para detectar cuando termina de regar
         "zone1_started_at": None,  # timestamp ISO de cuando empezó el ciclo actual
         "zone1_last_run_date": None,  # último día que Zona 1 corrió completo
+        "zone1_last_scheduled_date": None,  # último día que el bot programó el riego
         "zone1_runs": [],          # historial: [{"date":iso, "time":"HH:MM"}, ...]
         "no_run_alerted": False,   # evita repetir alerta de "sin riego" cada 15 min
+        "battery_last_week": None, # para mostrar delta en resumen semanal
     })
 
 # ─── SEASON / WEATHER ─────────────────────────────────────────────────────────
@@ -278,6 +288,64 @@ def get_season() -> str:
     return "spring"
 
 SEASON_LABEL = {"monsoon":"🌧️ Monzón","hot":"🔥 Calor Extremo","cool":"❄️ Invierno","spring":"🌱 Primavera"}
+
+# Riego automático Zona 1 (tierra) — (intervalo_dias, minutos_base) por temporada.
+# Cítricos/rosal necesitan riego frecuente en calor; cycas/cítricos en reposo
+# invernal sufren más por exceso que por falta de agua.
+ZONE1_SCHEDULE = {
+    "hot":     (2, 25),
+    "monsoon": (3, 20),
+    "spring":  (4, 20),
+    "cool":    (7, 12),
+}
+
+def get_zone1_plan() -> tuple[int,int]:
+    """Returns (interval_days, base_minutes) para la temporada actual."""
+    return ZONE1_SCHEDULE[get_season()]
+
+def recent_rain_mm(meta: dict, days: int = 2) -> float:
+    cutoff = (date.today()-timedelta(days=days-1)).isoformat()
+    return sum(r["mm"] for r in meta.get("rain_log",[]) if r["date"] >= cutoff)
+
+def days_since_last_rain(meta: dict) -> int|None:
+    log = meta.get("rain_log",[])
+    if not log: return None
+    return days_since(max(r["date"] for r in log))
+
+def compute_zone1_adjustment(temp:float|None, humidity:int|None,
+                              forecast_max:float|None, dry_days:int|None) -> tuple[int,list[str]]:
+    """
+    Ajuste graduado de minutos para Zona 1, considerando:
+      - Temperatura (hoy o pronóstico, lo que sea mayor) — gradual desde 35°C, no escalón
+      - Humedad relativa muy baja (<=15%) — típico de mayo-jun en Tucson, sube ET
+        aunque la temperatura aún no sea "extrema"
+      - Racha sin lluvia >=14 días — suelo profundo seco, necesita más
+      - Frío (<=15°C hoy y <=20°C pronóstico) — reduce, cítricos/cycas semi-dormantes
+    Devuelve (minutos_ajuste, lista_de_razones).
+    """
+    adj = 0; reasons = []
+    effective_temp = max(t for t in (temp, forecast_max) if t is not None) \
+                     if (temp is not None or forecast_max is not None) else None
+
+    if effective_temp is not None and effective_temp > 35:
+        temp_adj = min(round((effective_temp - 35) * 0.8), 12)
+        if temp_adj > 0:
+            adj += temp_adj
+            src = "hoy" if (temp or -99) >= (forecast_max or -99) else f"pronóstico {forecast_max:.0f}°C"
+            reasons.append(f"+{temp_adj}min calor ({src} {effective_temp:.0f}°C)")
+    elif (temp is not None and temp <= 15) and (forecast_max is None or forecast_max <= 20):
+        adj -= 5
+        reasons.append("-5min clima fresco")
+
+    if humidity is not None and humidity <= 15:
+        adj += 3
+        reasons.append(f"+3min aire muy seco ({humidity}% hum)")
+
+    if dry_days is not None and dry_days >= 14:
+        adj += 3
+        reasons.append(f"+3min sin lluvia {dry_days}d+")
+
+    return adj, reasons
 
 async def get_weather() -> dict:
     icons = {"01":"☀️","02":"⛅","03":"🌥️","04":"☁️","09":"🌧️","10":"🌦️","11":"⛈️","13":"🌨️","50":"🌫️"}
@@ -298,6 +366,56 @@ async def get_weather() -> dict:
     except Exception as e:
         logging.warning(f"WX: {e}")
         return {"ok": False, "temp_c": None, "rain_mm": 0.0, "humidity": None}
+
+async def get_forecast_max_temp(hours: int = 48) -> float | None:
+    """Temperatura máxima pronosticada en las próximas `hours` horas, o None si falla."""
+    try:
+        async with httpx.AsyncClient(timeout=12) as cl:
+            r = await cl.get(
+                f"https://api.openweathermap.org/data/2.5/forecast"
+                f"?lat={TUCSON_LAT}&lon={TUCSON_LON}&appid={OWM_KEY}&units=metric")
+        data = r.json()
+        cutoff = datetime.now(TUCSON_TZ) + timedelta(hours=hours)
+        temps = []
+        for entry in data.get("list", []):
+            dt = datetime.fromtimestamp(entry["dt"], tz=TUCSON_TZ)
+            if dt <= cutoff:
+                temps.append(entry["main"]["temp"])
+        return max(temps) if temps else None
+    except Exception as e:
+        logging.warning(f"Forecast: {e}")
+        return None
+
+async def get_azmet_daily() -> dict:
+    """
+    Datos reales de AYER de la estación AZMET Tucson (az01):
+      - eto_mm: evapotranspiración de referencia (Penman-Monteith), mm
+      - precip_mm: precipitación medida, mm
+    Esto es dato real medido, no estimado — la fuente que usan los agrónomos.
+    Retorna {"ok": False} si la API no responde (puede tener caídas ocasionales).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=12) as cl:
+            r = await cl.get(
+                f"https://api.azmet.arizona.edu/v1/observations/daily/"
+                f"{AZMET_STATION}/*/*")
+        data = r.json()
+        if not data:
+            return {"ok": False}
+        d = data[0] if isinstance(data, list) else data
+        eto = d.get("eto_pen_mon")
+        precip = d.get("precip_total_mm")
+        if eto is None:
+            return {"ok": False}
+        return {
+            "ok": True,
+            "eto_mm": float(eto),
+            "precip_mm": float(precip or 0),
+            "date": d.get("date_iso") or d.get("date"),
+        }
+    except Exception as e:
+        logging.warning(f"AZMET: {e}")
+        return {"ok": False}
 
 def log_rain(state, mm):
     if mm <= 0: return
@@ -638,6 +756,13 @@ def screen_tuya(state) -> tuple:
     lines.append(bat_line)
     lines.append("")
 
+    interval_days, base_min = get_zone1_plan()
+    season = get_season()
+    lines.append(f"🤖 <b>Plan automático Zona 1:</b> {SEASON_LABEL[season]} · "
+                 f"cada {interval_days}d · ~{base_min}min base · 5:00 AM")
+    lines.append("<i>Duración real ajustada por ETo (AZMET Tucson) cada mañana.</i>")
+    lines.append("")
+
     z1_on = status["switch_1"]; z1_cd = status["countdown_1"]
     lines.append(f"🌍 <b>Zona 1 — Tierra</b>")
     lines.append(f"   Estado: {'🟢 Abierta' if z1_on else '⚪ Cerrada'}"
@@ -678,6 +803,178 @@ def screen_tuya(state) -> tuple:
         ])
     rows.append([{"text": "🔄 Actualizar", "callback_data": "nav_tuya"}])
     return "\n".join(lines), navbar_with(rows, "tuya")
+
+# ─── MORNING IRRIGATION (5 AM) ─────────────────────────────────────────────────
+
+async def morning_irrigation():
+    """
+    5:00 AM Tucson — el bot decide si Zona 1 (tierra) debe regar hoy y por
+    cuántos minutos, según temporada, días desde el último riego exitoso,
+    y lluvia reciente.
+    """
+    if not tuya_control.TUYA_ENABLED:
+        return
+    state = load_state(); meta = get_meta(state)
+    today = date.today().isoformat()
+
+    if meta.get("zone1_last_scheduled_date") == today:
+        return  # ya se programó hoy (evita doble disparo)
+
+    interval_days, base_min = get_zone1_plan()
+    last_run = meta.get("zone1_last_run_date")
+    d = days_since(last_run)
+
+    if d is not None and d < interval_days:
+        return  # aún no toca — sin spam, no se marca scheduled
+
+    wx = await get_weather()
+    if wx.get("ok") and wx.get("rain_mm",0) > 0:
+        log_rain(state, wx["rain_mm"])
+
+    azmet = await get_azmet_daily()
+    forecast_max = await get_forecast_max_temp(hours=48)
+    dry_days = days_since_last_rain(meta)
+
+    # ── Skip por lluvia: AZMET (medición real de ayer) tiene prioridad sobre OWM ──
+    if azmet.get("ok"):
+        rain_recent = azmet["precip_mm"]
+        rain_source = f"AZMET {azmet.get('date','ayer')}"
+    else:
+        rain_recent = recent_rain_mm(meta, days=2)
+        rain_source = "OWM 48h"
+
+    if rain_recent >= 5:
+        meta["zone1_last_scheduled_date"] = today
+        save_state(state)
+        await send(f"🌧️ <b>Riego de hoy saltado</b> — llovió {rain_recent:.1f}mm "
+                    f"({rain_source}), la tierra está húmeda.")
+        return
+
+    # ── Duración: ETo real (AZMET) vs normal del mes -> ratio proporcional ──
+    reasons = []
+    if azmet.get("ok") and azmet["eto_mm"] > 0:
+        normal = ETO_NORMAL_MM[date.today().month]
+        ratio = max(0.5, min(azmet["eto_mm"] / normal, 1.8))
+        duration = base_min * ratio
+        pct = round((ratio - 1) * 100)
+        if abs(pct) >= 8:
+            reasons.append(f"ETo {azmet['eto_mm']:.1f}mm/d ({'+' if pct>=0 else ''}{pct}% vs normal)")
+    else:
+        # Fallback: AZMET caído -> heurística por temperatura/humedad de OWM
+        temp = wx.get("temp_c"); humidity = wx.get("humidity")
+        adj, fb_reasons = compute_zone1_adjustment(temp, humidity, forecast_max, dry_days)
+        duration = base_min + adj
+        reasons.append("⚠️ AZMET no disponible, estimado por clima")
+        reasons += fb_reasons
+
+    # Bono proactivo: ola de calor en pronóstico 48h (AZMET es de ayer, no predice)
+    if forecast_max is not None and forecast_max >= 42:
+        duration += 4
+        reasons.append(f"+4min ola de calor en 48h ({forecast_max:.0f}°C)")
+
+    # Bono por sequía prolongada — déficit profundo de suelo no capturado por 1 día de ETo
+    if dry_days is not None and dry_days >= 14:
+        duration += 3
+        reasons.append(f"+3min sin lluvia {dry_days}d+")
+
+    duration = max(8, min(40, round(duration)))
+
+    result = tuya_control.set_zone(1, True, minutes=duration)
+    if not result.get("ok"):
+        await asyncio.sleep(3)
+        result = tuya_control.set_zone(1, True, minutes=duration)  # 1 reintento
+
+    meta["zone1_last_scheduled_date"] = today
+
+    season = get_season()
+    temp = wx.get("temp_c")
+    temp_label = f" · {temp:.0f}°C" if temp is not None else ""
+    adjust_label = f" · {', '.join(reasons)}" if reasons else ""
+
+    if not result.get("ok"):
+        # La API ni siquiera aceptó el comando -> diagnóstico
+        diag = await diagnose_failure()
+        save_state(state)
+        await send(f"⚠️ <b>Riego automático falló</b> — comando rechazado.\n\n{diag}")
+        return
+
+    # Verificar que de verdad abrió (espera breve y re-checa estado)
+    await asyncio.sleep(5)
+    verify = tuya_control.get_status()
+    if verify.get("ok") and verify.get("switch_1") is True:
+        save_state(state)
+        await send(
+            f"🚰 <b>Riego automático Zona 1</b> — {duration} min\n"
+            f"{SEASON_LABEL[season]} · cada {interval_days}d{temp_label}{adjust_label}")
+    else:
+        # Comando "ok" pero la zona no abrió -> diagnóstico
+        diag = await diagnose_failure()
+        save_state(state)
+        await send(
+            f"⚠️ <b>Riego automático Zona 1 — comando enviado pero NO abrió.</b>\n\n{diag}")
+
+
+async def diagnose_failure() -> str:
+    """Da una razón probable cuando un comando Tuya no se ejecuta como se esperaba."""
+    bat = tuya_control.get_battery()
+    online = tuya_control.get_device_online()
+
+    if online is False:
+        return ("📡 <b>Insoma sin conexión a internet/Tuya.</b>\n"
+                "Revisa el WiFi del dispositivo — si está fuera de rango o "
+                "el router cambió de red, no recibe comandos.")
+    if bat is not None and bat <= 5:
+        return (f"🔋 <b>Batería casi agotada ({bat}%).</b>\n"
+                "Con batería muy baja el motor no tiene fuerza para abrir "
+                "la válvula aunque WiFi funcione. Cambia pilas.")
+    if online is None and bat is None:
+        return ("❓ No se pudo obtener batería ni estado de conexión — "
+                "la API de Tuya no respondió. Puede ser temporal, revisa "
+                "en unos minutos desde 🚰 Riego Físico.")
+    return (f"❓ Razón no clara. Batería: {bat if bat is not None else '--'}% · "
+            f"Conexión: {'🟢 online' if online else '🔴 offline' if online is False else '--'}.\n"
+            "Revisa manualmente desde 🚰 Riego Físico o la app Smart Life.")
+
+# ─── WEEKLY SUMMARY (domingo) ──────────────────────────────────────────────────
+
+async def weekly_summary():
+    """Resumen de los últimos 7 días: riego, fertilización, macetas, batería."""
+    state = load_state(); meta = get_meta(state)
+    cutoff = (date.today()-timedelta(days=7)).isoformat()
+
+    lines = ["📊 <b>Resumen semanal del jardín</b>", "━"*22]
+
+    if tuya_control.TUYA_ENABLED:
+        runs = [r for r in meta.get("zone1_runs",[]) if r["date"] >= cutoff]
+        total_min = sum(r.get("minutes") or 0 for r in runs)
+        lines.append(f"🚰 Zona 1 regó {len(runs)} veces · ~{total_min:.0f} min total")
+
+        status = tuya_control.get_status()
+        bat = status.get("battery") if status.get("ok") else None
+        bat_prev = meta.get("battery_last_week")
+        if bat is not None:
+            if bat_prev is not None:
+                delta = bat - bat_prev
+                lines.append(f"🔋 Batería: {bat}% ({'+' if delta>=0 else ''}{delta}% vs semana pasada)")
+            else:
+                lines.append(f"🔋 Batería: {bat}%")
+            meta["battery_last_week"] = bat
+
+    pot_count = sum(1 for p in POT_PLANTS
+                     if (e:=get_pot_entry(p,meta)) and e["date"] >= cutoff)
+    lines.append(f"🪴 Macetas regadas: {pot_count}/{len(POT_PLANTS)} esta semana")
+
+    fert_count = sum(1 for p in PLANTS
+                      if (e:=get_fert_entry(p,meta)) and e["date"] >= cutoff)
+    if fert_count:
+        lines.append(f"🌿 Fertilizaciones registradas: {fert_count}")
+
+    rain_7d = sum(r["mm"] for r in meta.get("rain_log",[]) if r["date"] >= cutoff)
+    if rain_7d > 0:
+        lines.append(f"🌧️ Lluvia acumulada: {rain_7d:.1f}mm")
+
+    save_state(state)
+    await send("\n".join(lines), navbar(active="today"))
 
 # ─── EVENING CHECK (8 PM) ──────────────────────────────────────────────────────
 
@@ -815,21 +1112,28 @@ async def tuya_monitor():
             if len(runs) > 30:
                 meta["zone1_runs"] = runs[-30:]
             meta["no_run_alerted"] = False
-            await send(f"✅ <b>Zona 1 (tierra) regó {mins_label} min</b> — todo bien.")
+            # Si el bot ya confirmó este riego esta mañana (morning_irrigation),
+            # no repetir el mensaje — solo avisar si fue un riego NO programado por el bot
+            # (ej. corriste manual o Smart Life todavía tiene horario propio).
+            if meta.get("zone1_last_scheduled_date") != today:
+                await send(f"✅ <b>Zona 1 (tierra) regó {mins_label} min</b> — todo bien "
+                            f"(no fue el bot — ¿Smart Life tiene horario propio?).")
             logging.info(f"Zona 1: ciclo de riego completo ({elapsed_min}min) — registrado.")
 
         meta["zone1_started_at"] = None
 
     meta["zone1_was_on"] = z1_on
 
-    # Alerta si lleva >=2 días sin riego exitoso
+    # Alerta si lleva más del intervalo de temporada +2 días sin riego exitoso
     last_run = meta.get("zone1_last_run_date")
     d = days_since(last_run)
-    if d is not None and d >= 2 and not meta.get("no_run_alerted") and not z1_on:
+    interval_days, _ = get_zone1_plan()
+    threshold = interval_days + 2
+    if d is not None and d >= threshold and not meta.get("no_run_alerted") and not z1_on:
+        diag = await diagnose_failure()
         await send(
-            f"⚠️ <b>Zona 1 (tierra) sin riego exitoso en {d} días.</b>\n\n"
-            f"Revisa: horario en Smart Life, batería del Insoma, "
-            f"o que la llave principal esté abierta.",
+            f"⚠️ <b>Zona 1 (tierra) sin riego exitoso en {d} días</b> "
+            f"(esperado cada {interval_days}d).\n\n{diag}",
             navbar(active="tuya")
         )
         meta["no_run_alerted"] = True
@@ -1068,7 +1372,9 @@ async def main():
 
     sched = AsyncIOScheduler(timezone=TUCSON_TZ)
     sched.add_job(evening_check, "cron", hour=20, minute=0, id="evening")
+    sched.add_job(weekly_summary, "cron", day_of_week="sun", hour=21, minute=0, id="weekly_summary")
     if tuya_control.TUYA_ENABLED:
+        sched.add_job(morning_irrigation, "cron", hour=5, minute=0, id="morning_irrigation")
         sched.add_job(tuya_monitor, "interval", minutes=15, id="tuya_monitor")
     sched.start()
 
