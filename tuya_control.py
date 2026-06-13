@@ -115,6 +115,21 @@ def set_zone(zone: int, on: bool, minutes: int | None = None) -> dict:
     return send_commands(commands)
 
 
+def get_device_online() -> bool | None:
+    """Returns True/False si el dispositivo está conectado a Tuya, None si no se pudo saber."""
+    if not TUYA_ENABLED:
+        return None
+    try:
+        cloud = _get_cloud()
+        result = cloud.cloudrequest(f"/v1.0/devices/{DEVICE_ID}")
+        if result.get("success"):
+            return result["result"].get("online")
+        return None
+    except Exception as e:
+        logging.error(f"Tuya get_device_online error: {e}")
+        return None
+
+
 def get_battery() -> int | None:
     """Returns battery percentage (0-100) or None if unavailable."""
     status = get_status()
