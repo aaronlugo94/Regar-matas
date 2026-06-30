@@ -259,6 +259,13 @@ def verify_volume() -> bool:
     except Exception:
         return False
 
+def travel_label(travel_until: str|None) -> str:
+    """Texto legible del estado de viaje — indefinido no muestra fecha falsa."""
+    if not travel_until: return ""
+    if travel_until == "9999-12-31":
+        return "activo (sin fecha fija — termina al tocar 'Terminar viaje')"
+    return f"activo hasta {travel_until}"
+
 def get_meta(state: dict) -> dict:
     return state.setdefault("_meta", {
         "fertilize_log": {},       # pid -> last fert date (iso)
@@ -273,6 +280,8 @@ def get_meta(state: dict) -> dict:
         "zone1_started_at": None,  # timestamp ISO de cuando empezó el ciclo actual
         "zone1_last_run_date": None,  # último día que Zona 1 corrió completo
         "zone1_last_scheduled_date": None,  # último día que el bot programó el riego
+        "zone2_last_run_date": None,    # último día que Zona 2 (macetas) regó en viaje
+        "zone2_last_scheduled_date": None,
         "zone1_runs": [],          # historial: [{"date":iso, "time":"HH:MM"}, ...]
         "no_run_alerted": False,   # evita repetir alerta de "sin riego" cada 15 min
         "battery_last_week": None, # para mostrar delta en resumen semanal
@@ -302,6 +311,19 @@ ZONE1_SCHEDULE = {
 def get_zone1_plan() -> tuple[int,int]:
     """Returns (interval_days, base_minutes) para la temporada actual."""
     return ZONE1_SCHEDULE[get_season()]
+
+# Zona 2 (macetas porche, techado) — la lluvia NO les llega, así que su plan
+# no se salta por lluvia (a diferencia de Zona 1). Solo se usa durante viajes.
+ZONE2_SCHEDULE = {
+    "hot":     (3, 12),
+    "monsoon": (4, 10),
+    "spring":  (4, 10),
+    "cool":    (6, 6),
+}
+
+def get_zone2_plan() -> tuple[int,int]:
+    """Returns (interval_days, base_minutes) para la temporada actual."""
+    return ZONE2_SCHEDULE[get_season()]
 
 def recent_rain_mm(meta: dict, days: int = 2) -> float:
     cutoff = (date.today()-timedelta(days=days-1)).isoformat()
@@ -615,7 +637,7 @@ def screen_today(state, wx) -> tuple:
     # ── Modo viaje ────────────────────────────────────────────────────────
     travel_until = meta.get("travel_until")
     if travel_until and travel_until >= today:
-        lines.append(f"\n✈️ <b>Modo viaje activo</b> hasta {travel_until}")
+        lines.append(f"\n✈️ <b>Modo viaje</b> {travel_label(travel_until)}")
 
     if not has_items:
         lines.append("\n✅ <b>Todo al día.</b> Nada que hacer hoy.")
@@ -675,7 +697,7 @@ def screen_pots(state) -> tuple:
     on_travel = bool(travel_until and travel_until >= today)
     lines.append("")
     if on_travel:
-        lines.append(f"✈️ <b>Modo viaje activo</b> hasta {travel_until} — Zona 2 (Insoma) riega las macetas")
+        lines.append(f"✈️ <b>Modo viaje</b> {travel_label(travel_until)} — Zona 2 (Insoma) riega las macetas")
     else:
         lines.append("<i>✈️ En viaje, el Insoma riega las macetas automático (Zona 2)</i>")
     return "\n".join(lines), navbar_with(rows, "pots")
@@ -774,9 +796,18 @@ def screen_tuya(state) -> tuple:
     lines.append(f"   Estado: {'🟢 Abierta' if z2_on else '⚪ Cerrada'}"
                  + (f"  ·  ⏳ {z2_cd} min" if z2_on else ""))
     if on_travel:
-        lines.append(f"   ✈️ Modo viaje activo hasta {travel_until}")
+        z2_interval, z2_base = get_zone2_plan()
+        lines.append(f"   ✈️ Modo viaje {travel_label(travel_until)}")
+        lines.append(f"   🤖 Plan: cada {z2_interval}d · ~{z2_base}min base · 5:05 AM")
+        z2_last = meta.get("zone2_last_run_date")
+        z2_d = days_since(z2_last)
+        if z2_last == today:
+            lines.append("   ✅ Regó hoy")
+        elif z2_d is not None:
+            lines.append(f"   <i>Último riego: hace {z2_d}d</i>")
     lines.append("")
-    lines.append("<i>Zona 2 normalmente cerrada — solo se usa en viajes.</i>")
+    lines.append("<i>Zona 2 normalmente cerrada — solo se usa en viajes, regando "
+                 "sola según temporada hasta que toques 'Terminar viaje'.</i>")
 
     rows = []
     if z1_on:
@@ -796,11 +827,7 @@ def screen_tuya(state) -> tuple:
     if on_travel:
         rows.append([{"text": "🏠 Terminar viaje (cierra Zona 2)", "callback_data": "travel_end"}])
     else:
-        rows.append([
-            {"text": "✈️ Viaje 3d", "callback_data": "travel_start_3"},
-            {"text": "✈️ Viaje 5d", "callback_data": "travel_start_5"},
-            {"text": "✈️ Viaje 7d", "callback_data": "travel_start_7"},
-        ])
+        rows.append([{"text": "✈️ Activar Viaje", "callback_data": "travel_start"}])
     rows.append([{"text": "🔄 Actualizar", "callback_data": "nav_tuya"}])
     return "\n".join(lines), navbar_with(rows, "tuya")
 
@@ -912,6 +939,79 @@ async def morning_irrigation():
         save_state(state)
         await send(
             f"⚠️ <b>Riego automático Zona 1 — comando enviado pero NO abrió.</b>\n\n{diag}")
+
+
+async def travel_irrigation():
+    """
+    5:05 AM Tucson — si hay un viaje activo (travel_until), riega Zona 2
+    (macetas) según el plan de temporada + ETo de AZMET, igual que Zona 1.
+    No se salta por lluvia (las macetas están en el porche techado, la
+    lluvia no las moja). Se detiene solo cuando el usuario toca "Terminar viaje".
+    """
+    if not tuya_control.TUYA_ENABLED:
+        return
+    state = load_state(); meta = get_meta(state)
+    today = date.today().isoformat()
+
+    travel_until = meta.get("travel_until")
+    if not travel_until or travel_until < today:
+        return  # no hay viaje activo
+
+    if meta.get("zone2_last_scheduled_date") == today:
+        return  # ya se programó hoy
+
+    interval_days, base_min = get_zone2_plan()
+    last_run = meta.get("zone2_last_run_date")
+    d = days_since(last_run)
+
+    if d is not None and d < interval_days:
+        return  # aún no toca
+
+    azmet = await get_azmet_daily()
+    reasons = []
+    if azmet.get("ok") and azmet["eto_mm"] > 0:
+        normal = ETO_NORMAL_MM[date.today().month]
+        ratio = max(0.5, min(azmet["eto_mm"] / normal, 1.8))
+        duration = base_min * ratio
+        pct = round((ratio - 1) * 100)
+        if abs(pct) >= 8:
+            reasons.append(f"ETo {azmet['eto_mm']:.1f}mm/d ({'+' if pct>=0 else ''}{pct}%)")
+    else:
+        duration = base_min
+        reasons.append("⚠️ AZMET no disponible, usando base de temporada")
+
+    duration = max(5, min(20, round(duration)))
+
+    result = tuya_control.set_zone(2, True, minutes=duration)
+    if not result.get("ok"):
+        await asyncio.sleep(3)
+        result = tuya_control.set_zone(2, True, minutes=duration)
+
+    meta["zone2_last_scheduled_date"] = today
+
+    season = get_season()
+    reason_label = f" · {', '.join(reasons)}" if reasons else ""
+
+    if not result.get("ok"):
+        diag = await diagnose_failure()
+        save_state(state)
+        await send(f"⚠️ <b>Riego de viaje Zona 2 falló</b> — comando rechazado.\n\n{diag}")
+        return
+
+    await asyncio.sleep(5)
+    verify = tuya_control.get_status()
+    if verify.get("ok") and verify.get("switch_2") is True:
+        meta["zone2_last_run_date"] = today
+        save_state(state)
+        await send(
+            f"🚰✈️ <b>Riego de viaje — Zona 2 (macetas)</b> — {duration} min\n"
+            f"{SEASON_LABEL[season]} · cada {interval_days}d{reason_label}\n"
+            f"<i>Viaje {travel_label(travel_until)}</i>")
+    else:
+        diag = await diagnose_failure()
+        save_state(state)
+        await send(
+            f"⚠️ <b>Riego de viaje Zona 2 — comando enviado pero NO abrió.</b>\n\n{diag}")
 
 
 async def diagnose_failure() -> str:
@@ -1305,14 +1405,25 @@ async def handle_cb(update: dict):
         await edit(chat, mid, txt, kb)
 
     # ── Modo viaje ────────────────────────────────────────────────────────
-    elif data.startswith("travel_start_"):
-        days = int(data.split("_")[2])
-        until = (date.today()+timedelta(days=days)).isoformat()
-        meta["travel_until"] = until
+    elif data == "travel_start":
+        meta["travel_until"] = "9999-12-31"  # indefinido — termina solo con "Terminar viaje"
+        # Reset para que travel_irrigation riegue de inmediato hoy y luego
+        # siga su propio ciclo (cada N días) hasta que termines el viaje.
+        meta["zone2_last_run_date"] = None
+        meta["zone2_last_scheduled_date"] = None
         save_state(state)
-        result = tuya_control.set_zone(2, True, minutes=12)
+        _, base_min = get_zone2_plan()
+        result = tuya_control.set_zone(2, True, minutes=base_min)
         if result.get("ok"):
-            await ack(f"✈️ Viaje activado ({days}d) — Zona 2 abierta 12min", alert=True)
+            today = date.today().isoformat()
+            meta["zone2_last_run_date"] = today
+            meta["zone2_last_scheduled_date"] = today
+            save_state(state)
+            interval_days, _ = get_zone2_plan()
+            await ack(f"✈️ Viaje activado — Zona 2 regó {base_min}min. "
+                      f"El bot seguirá regando cada {interval_days}d hasta que toques "
+                      f"'Terminar viaje', sin importar cuántos días dure.",
+                      alert=True)
         else:
             await ack(f"✈️ Viaje activado, error Zona 2: {result.get('error','?')}", alert=True)
         txt, kb = screen_tuya(state)
@@ -1320,10 +1431,12 @@ async def handle_cb(update: dict):
 
     elif data == "travel_end":
         meta.pop("travel_until", None)
+        meta["zone2_last_run_date"] = None
+        meta["zone2_last_scheduled_date"] = None
         save_state(state)
         result = tuya_control.set_zone(2, False)
         if result.get("ok"):
-            await ack("🏠 ¡Bienvenido! Zona 2 cerrada", alert=True)
+            await ack("🏠 ¡Bienvenido! Zona 2 cerrada — vuelves a riego manual", alert=True)
         else:
             await ack(f"🏠 Viaje terminado, error: {result.get('error','?')}", alert=True)
         txt, kb = screen_tuya(state)
@@ -1375,6 +1488,7 @@ async def main():
     sched.add_job(weekly_summary, "cron", day_of_week="sun", hour=21, minute=0, id="weekly_summary")
     if tuya_control.TUYA_ENABLED:
         sched.add_job(morning_irrigation, "cron", hour=5, minute=0, id="morning_irrigation")
+        sched.add_job(travel_irrigation, "cron", hour=5, minute=5, id="travel_irrigation")
         sched.add_job(tuya_monitor, "interval", minutes=15, id="tuya_monitor")
     sched.start()
 
